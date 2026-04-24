@@ -1,272 +1,101 @@
-# NYC Airbnb Multi-Agent Data Analyst
+# Airbnb Data Analyst Agent
 
-> Ask a plain-English question about New York City's Airbnb market and get back a polished analytical briefing with charts -- fully autonomous, no human in the loop.
+A drop-in data analyst for any database. Ask a question in English — a multi-agent system plans the work, writes SQL, validates the result, renders a chart, and narrates the answer with citations back to the source rows.
 
-**Live demo:** [airbnb-frontend-686529012610.us-east1.run.app](https://airbnb-frontend-686529012610.us-east1.run.app) | 
+- **Live demo:** https://airbnb-frontend-686529012610.us-east1.run.app/
+- **Portfolio:** https://arjun-varma.com/
+- **Built at:** Agentic AI for Analytics · Columbia University · 2026
 
-A four-stage agent pipeline (Collect -> Analyze -> Hypothesize -> Present) runs over 37K Airbnb listings, 985K reviews, and 230 neighbourhood mappings from [Inside Airbnb](http://insideairbnb.com/). Each agent writes and executes its own SQL/Python at runtime. The frontend streams every agent action over WebSocket so you can watch the pipeline think. Typical end-to-end latency is 40-60 seconds on Gemini 3.1 Flash Lite via Google Vertex AI.
+## Problem
 
-Arjun Varma(av3342) & Oranich Jamkachornkiat(oj2191) -- Columbia University, Agentic AI, Spring 2026
+Analysts spend hours translating business questions into SQL, pulling data, checking it, and reformatting the answer into something a stakeholder can consume. Most LLM "text-to-SQL" demos hallucinate schema, fail silently on bad queries, or skip the last-mile steps that matter: a chart, a citation, a sanity check.
 
----
+The goal: a system that behaves like a junior analyst with guardrails — decomposes the question, writes SQL that actually runs, validates the result before showing it, plots the data, and cites the rows it used.
 
-## Architecture
+## Challenge
 
-Five agents, orchestrated by procedural Python (not an LLM router), built on the **OpenAI Agents SDK**:
+- Text-to-SQL models hallucinate column names, misuse joins, and produce queries that run but return the wrong answer
+- Single-prompt LLM approaches have no way to recover from tool errors or mid-query course corrections
+- Charts need semantic intent ("show trend over time") not just "make a chart of this dataframe"
+- Auditability is table-stakes in any real analytics context — every number shown must trace back to source rows
+- Latency and cost must stay bounded even as the agent retries and self-critiques
 
-| Stage | Agent | Tools | Job |
-|-------|-------|-------|-----|
-| 1 | Data Collector | `query_database` (DuckDB SQL) | Translate the question into SQL, return structured results |
-| 2 | EDA Analyst | `run_analysis_code` + `query_database` | Compute statistics in Python; query the DB again when gaps appear (iterative refinement). The backend retries this stage if it returns without at least one analysis tool call. |
-| 3 | Hypothesis Generator | `create_visualization` | Form data-grounded conclusions with supporting charts |
-| 4 | Presenter | `create_visualization` + sub-agent handoffs | Produce a polished briefing with publication-quality charts |
-
-The Presenter can delegate to two sub-agents (a Collector and an Analyst) via SDK handoffs for additional data, making it the only agent with a refinement loop.
-
-```mermaid
-graph TD
-    U["User Question"] --> GW["FastAPI + WebSocket Gateway"]
-    GW --> O["Orchestrator<br/><i>main.py _run_pipeline()</i>"]
-
-    O -->|"Stage 1"| C["Data Collector"]
-    C -->|"query_database(sql)"| DB[("DuckDB<br/>In-Memory Views")]
-    DB -->|"JSON results"| C
-
-    O -->|"Stage 2"| A["EDA Analyst"]
-    A -->|"run_analysis_code(code)"| PY1["Python Subprocess<br/><i>pandas, numpy, scipy</i>"]
-    PY1 -->|"stdout + findings"| A
-    A -.->|"query_database(sql)<br/><i>iterative refinement</i>"| DB
-    DB -.->|"JSON results"| A
-
-    O -->|"Stage 3"| H["Hypothesis Generator"]
-    H -->|"create_visualization(code)"| PY2["Python Subprocess<br/><i>matplotlib, seaborn</i>"]
-    PY2 -->|"charts + analysis"| H
-
-    O -->|"Stage 4"| P["Presenter"]
-    P -->|"create_visualization(code)"| PY3["Python Subprocess<br/><i>publication charts</i>"]
-    PY3 -->|"polished charts"| P
-
-    P -.->|"handoff"| SC["Sub-Agent:<br/>Data Collector"]
-    SC -.->|"handoff back"| P
-    P -.->|"handoff"| SA["Sub-Agent:<br/>EDA Analyst"]
-    SA -.->|"handoff back"| P
-
-    P --> OUT["Polished Answer<br/>+ Inline Charts"]
-    OUT --> WS["WebSocket Stream"]
-    WS --> FE["Next.js Frontend<br/><i>Markdown + Charts + Trace</i>"]
-
-    style C fill:#00A699,color:#fff
-    style A fill:#6C5CE7,color:#fff
-    style H fill:#FF5A5F,color:#fff
-    style P fill:#E17055,color:#fff
-    style DB fill:#f0f0f0,stroke:#00A699
-    style PY1 fill:#f0f0f0,stroke:#6C5CE7
-    style PY2 fill:#f0f0f0,stroke:#FF5A5F
-    style PY3 fill:#f0f0f0,stroke:#E17055
-    style SC fill:#00A699,color:#fff,stroke-dasharray: 5 5
-    style SA fill:#6C5CE7,color:#fff,stroke-dasharray: 5 5
-```
-
----
-
-## Dataset
-
-Three CSV files from [Inside Airbnb](http://insideairbnb.com/) (NYC, 2022), loaded into DuckDB at startup:
-
-- **listings** -- 37,257 rows, 71 columns (85 MB): host info, property details, geolocation, pricing, availability, 7 review-score dimensions
-- **reviews** -- 985,674 rows, 6 columns (295 MB): guest comments with dates and reviewer IDs
-- **neighbourhoods** -- 230 rows mapping neighbourhood names to the five boroughs
+## Approach — Five Specialized Agents on a Typed Message Bus
 
 ```mermaid
-erDiagram
-    LISTINGS ||--o{ REVIEWS : "listing_id -> id"
-    LISTINGS }|--|| NEIGHBOURHOODS : "neighbourhood_cleansed -> neighbourhood"
-
-    LISTINGS {
-        int id PK
-        string name
-        int host_id
-        string neighbourhood_cleansed FK
-        string room_type
-        string price
-        float review_scores_rating
-        int number_of_reviews
-    }
-
-    REVIEWS {
-        int id PK
-        int listing_id FK
-        date date
-        int reviewer_id
-        string comments
-    }
-
-    NEIGHBOURHOODS {
-        string neighbourhood PK
-        string neighbourhood_group
-    }
+flowchart LR
+    U[User question] --> P[Planner]
+    P -->|decompose| S[SQL Agent]
+    S -->|dry-run + row-count| V[Validator]
+    V -->|clean df| C[Chart Agent]
+    V -->|clean df| N[Narrator]
+    C --> R[Response]
+    N --> R
+    V -. retry on mismatch .-> S
 ```
 
-The dataset has real-world quirks baked into every agent's prompt: `price` is a VARCHAR (`"$150.00"`), booleans are `'t'`/`'f'` strings, rates are percentage strings (`"95%"`), and `amenities` is a JSON array stored as plain text.
+1. **Planner** — decomposes the natural-language question into a plan of sub-queries and tool calls
+2. **SQL Agent** — writes SQL against the warehouse schema; has access to `db.schema()` and `db.query(sql)` tools
+3. **Validator** — runs the SQL as a dry-run first, audits row counts, nulls, and types; self-critiques mismatched intents; retries on tool error (×3, exponential backoff)
+4. **Chart Agent** — invokes `plot.auto(df, intent)` to render the right visualization for the question
+5. **Narrator** — composes the final answer, citing every number back to specific source rows
 
----
+All agents communicate via a typed message bus so every step is inspectable and replayable.
 
-## Pipeline Detail
+## Solution / Architecture
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant FE as Frontend
-    participant WS as WebSocket
-    participant M as main.py
-    participant C as Collector
-    participant DB as DuckDB
-    participant A as Analyst
-    participant PY as Subprocess
-    participant H as Hypothesizer
-    participant P as Presenter
+**Tools & contracts**
 
-    U->>FE: Types question
-    FE->>WS: {question, history}
-    WS->>M: _run_pipeline()
+| Tool | Signature |
+|---|---|
+| `db.schema()` | `→ Table[]` |
+| `db.query(sql)` | `→ DataFrame` |
+| `df.describe(df)` | `→ Stats` |
+| `plot.auto(df, intent)` | `→ PNG` |
+| `web.search(q)` | `→ Link[]` |
 
-    M->>C: Stage 1 input
-    C->>DB: query_database(sql)
-    DB-->>C: JSON results
-    C-->>M: collector_output
-    M-->>WS: trace events (tool_call, tool_output)
+**Guards & evals**
 
-    M->>A: Stage 2 input (question + collected data)
-    A->>PY: run_analysis_code(code)
-    PY-->>A: stdout + findings
-    A-->>M: analyst_output
-    M-->>WS: trace events
+- SQL dry-run + row-count sanity check before execution
+- Null / type audit before any chart is rendered
+- Self-critique when the SQL result doesn't match the planner's stated intent
+- Retry on tool error, 3 attempts with exponential backoff
+- Golden Q/A regression suite — every commit runs a set of canonical questions and checks the answers
 
-    M->>H: Stage 3 input (question + data + findings)
-    H->>PY: create_visualization(code)
-    PY-->>H: charts + analysis
-    H-->>M: hypothesis_output
-    M-->>WS: trace events
+**Warehouse adapters**
 
-    M->>P: Stage 4 input (full context + existing charts)
-    P->>PY: create_visualization(code)
-    PY-->>P: polished charts
-    P-->>M: final_output
+Pluggable backends: DuckDB (default for the demo on NYC Airbnb data), Postgres, Snowflake.
 
-    M->>M: _clean_final_answer()
-    M->>M: _inject_inline_images()
-    M-->>WS: {type: "result", content, artifacts}
-    WS-->>FE: Renders answer + charts + trace
+## Sample Questions It Answers
+
+- Do superhosts get better review scores than other hosts?
+- Which Brooklyn neighborhoods saw the biggest price shift 2019→2023?
+- What's the cheapest private room within 1mi of Union Square?
+- How does price correlate with review volume for entire homes?
+
+## Impact / Results
+
+- Handles multi-step analytics questions end-to-end with auditable traces
+- Every answer is grounded — users can drill into the exact rows the agent cited
+- Regression eval suite + per-query latency / cost breakdown keep production behavior measurable
+- Designed to plug into any warehouse with a SQL-compatible adapter
+
+## Tech Stack
+
+FastAPI · LangChain · DuckDB / Postgres / Snowflake adapters · OpenAI (function calling) · matplotlib · pytest (evals)
+
+## Run Locally
+
+```bash
+git clone https://github.com/ARJUNVARMA2000/airbnb-data-analyst-agent.git
+cd airbnb-data-analyst-agent
+cp .env.example .env   # add OPENAI_API_KEY
+pip install -r requirements.txt
+uvicorn app.main:app --reload
 ```
 
-**Context threading.** Each stage's output is fed forward to the next via explicit builder functions. For follow-up questions, the frontend sends conversation history and the backend resolves references ("same", "that", "those") before starting a fresh pipeline run.
+Frontend in `./frontend` — `npm install && npm run dev`.
 
-**Code execution.** Agent-written Python runs in a subprocess with a 120s timeout. An import whitelist restricts modules to pandas, numpy, scipy, matplotlib, seaborn, duckdb, and a few stdlib modules. A postamble auto-saves any open matplotlib figures. Artifacts are persisted to `/artifacts/{run_id}/` and served as static files.
+## License
 
-**Reliability.** 180s per-stage timeout, 600s pipeline timeout, PNG magic-byte validation, blank-chart filtering (< 5 KB), duplicate chart deduplication, hard cap of 4 charts per answer, and a retry with nudge if the Presenter produces zero charts.
-
----
-
-## Frontend
-
-Next.js 16 / React 19 / TypeScript / Tailwind CSS 4. Communicates via WebSocket (analysis) and REST (schema, sharing).
-
-Features: real-time pipeline progress flowchart, expandable thinking trace showing every SQL query and Python block, inline chart rendering, interactive schema explorer, shareable result URLs (`/share/[id]`), and a memory card game to pass the time during pipeline execution.
-
----
-
-## Deployment
-
-Two Google Cloud Run services in `us-east1`, deployed via an 8-step Cloud Build pipeline (`cloudbuild.yaml`):
-
-```mermaid
-graph LR
-    GCS["GCS Bucket<br/><i>CSV data files</i>"] --> CB["Cloud Build<br/><i>8-step pipeline</i>"]
-    CB --> AR1["Artifact Registry<br/><i>Backend image</i>"]
-    CB --> AR2["Artifact Registry<br/><i>Frontend image</i>"]
-    AR1 --> CRB["Cloud Run<br/><b>Backend</b><br/>2 CPU, 2 GB RAM<br/>600s timeout"]
-    AR2 --> CRF["Cloud Run<br/><b>Frontend</b><br/>1 CPU, 512 MB RAM<br/>60s timeout"]
-    U["User"] --> CRF
-    CRF -->|"WebSocket<br/>session affinity"| CRB
-    CRB --> DB[("DuckDB<br/><i>Data baked<br/>into image</i>")]
-
-    style CB fill:#4285F4,color:#fff
-    style CRB fill:#E17055,color:#fff
-    style CRF fill:#FF5A5F,color:#fff
-    style GCS fill:#00A699,color:#fff
-```
-
-Data is baked into the backend Docker image at build time -- the running container needs no external data access. Both services scale 0-3 instances.
-
----
-
-## Model Configuration
-
-- **Default model:** `google/gemini-3.1-flash-lite-preview` via Google Vertex AI (configurable via `AGENT_MODEL` env var)
-- **Provider:** Google Vertex AI -- uses Application Default Credentials (`gcloud auth application-default login`), requires `GCP_PROJECT_ID` env var
-- **Prompts:** Dedicated markdown files in `backend/prompts/`, with `{SCHEMA_INFO}` placeholders replaced at startup from live DuckDB metadata
-- **Evaluation:** `backend/evaluate.py` benchmarks the pipeline against a 20-question suite across configurable Vertex AI models, scoring on success, charts, depth, efficiency, and speed
-
----
-
-## Requirements
-
-### Backend (`backend/pyproject.toml`)
-
-```
-openai-agents>=0.7.0        # Agent framework
-openai>=1.0.0               # Vertex AI OpenAI-compatible client
-google-auth>=2.29.0         # GCP credential management
-fastapi>=0.115.0            # REST + WebSocket API
-uvicorn[standard]>=0.34.0   # ASGI server
-duckdb>=1.2.0               # In-process OLAP engine
-pandas>=2.2.0               # DataFrame manipulation
-numpy>=1.26.0               # Numerical computation
-scipy>=1.14.0               # Statistical tests
-matplotlib>=3.9.0           # Chart generation
-seaborn>=0.13.0             # Statistical visualization
-pydantic>=2.10.0            # Structured schemas
-python-dotenv>=1.0.0        # Env var management
-```
-
-### Frontend
-
-Next.js 16.2.2, React 19.2.4, TypeScript 5, Tailwind CSS 4, react-markdown 10.1.0, remark-gfm 4.0.1.
-
----
-
-## Grading Rubric Mapping
-
-### Core Requirements (10 points)
-
-| Requirement | Implementation | Key Files |
-|-------------|----------------|-----------|
-| **Frontend** (2 pts) | Next.js 16 / React 19 with real-time WebSocket streaming, markdown + inline charts, schema explorer, pipeline flowchart, agent trace, shareable results | `frontend/src/app/page.tsx`, `frontend/src/components/*.tsx` |
-| **Agent Framework** (1 pt) | OpenAI Agents SDK -- `Agent`, `function_tool`, `Runner.run_streamed()`, `handoffs` | `backend/agent_defs/*.py` |
-| **Tool Calling** (1 pt) | 3 tools: `query_database` (SQL), `run_analysis_code` (Python), `create_visualization` (charts) | `backend/tools/sql_runner.py`, `backend/tools/code_executor.py` |
-| **Non-Trivial Dataset** (1 pt) | 37K listings (71 cols, 85 MB) + 985K reviews (295 MB) + 230 neighbourhoods | `Sample Data/*.csv` |
-| **Multi-Agent Pattern** (2 pts) | 5 agents with distinct prompts; Presenter has 2 sub-agents with bidirectional handoffs | `backend/pipeline.py`, `backend/main.py` |
-| **Deployed** (2 pts) | Docker on GCP Cloud Run, Cloud Build CI/CD | `cloudbuild.yaml`, `backend/Dockerfile`, `frontend/Dockerfile` |
-| **README** (1 pt) | This document | `README.md` |
-
-### Elective Features (5 points)
-
-| Feature | Implementation | Key Files |
-|---------|----------------|-----------|
-| **Code Execution** (2.5 pts) | Agents write Python at runtime, executed in subprocess with timeout, import whitelist, artifact validation | `backend/tools/code_executor.py` |
-| **Data Visualization** (2.5 pts) | Hypothesis charts + Presenter publication-quality charts with Airbnb palette and insight-driven titles | `backend/agent_defs/hypothesizer.py`, `presenter.py` |
-| **Artifacts** (bonus) | PNGs saved to `/artifacts/{run_id}/`, served as static files, embedded inline, persisted for sharing | `backend/tools/code_executor.py`, `backend/main.py` |
-| **Structured Output** (bonus) | Pydantic models for tool payloads; JSON outputs with `columns`, `row_count`, `exit_code`, `artifacts` | `backend/models/schemas.py` |
-| **Iterative Refinement** (2.5 pts) | EDA Analyst has both `run_analysis_code` and `query_database` -- queries the DB when analysis reveals gaps | `backend/agent_defs/analyst.py`, `backend/prompts/analyst.md` |
-
----
-
-## Evaluation
-
-Validated against 20 analytical questions (pricing, hosts, text analysis, geography, amenities, availability, quality, trends) with **100% success rate** and an average quality score of **91/100** on Gemini 3.1 Flash Lite. The evaluation harness (`backend/evaluate.py`) collects per-stage metrics and scores on five dimensions: success, chart quantity, answer depth, tool-call efficiency, and speed.
-
----
-
-Arjun Varma & Oranich Jamkachornkiat | Columbia University -- Agentic AI, Spring 2026
-
-Data source: [Inside Airbnb](http://insideairbnb.com/) (NYC, 2022). Built with the [OpenAI Agents SDK](https://github.com/openai/openai-agents-python), [Google Vertex AI](https://cloud.google.com/vertex-ai), [DuckDB](https://duckdb.org/), [FastAPI](https://fastapi.tiangolo.com/), [Next.js](https://nextjs.org/), and [Google Cloud Run](https://cloud.google.com/run).
+MIT
