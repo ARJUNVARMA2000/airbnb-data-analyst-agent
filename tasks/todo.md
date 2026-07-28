@@ -141,8 +141,13 @@
 - [x] Keep the existing Vertex AI provider and replace the unavailable preview model with GA `gemini-2.5-flash`.
 - [x] Align runtime defaults, examples, evaluation configuration, and regression coverage with the supported model.
 - [x] Run unit, import, and configuration smoke checks.
-- [ ] Deploy the corrected backend and verify a real website question end to end.
+- [x] Deploy the corrected backend and verify a real website question end to end.
 
 ### Review
 
-- Pending implementation and verification.
+- Root cause: production called unavailable Vertex model `google/gemini-3.1-flash-lite-preview`, which returned a 404 `Publisher model ... was not found` error.
+- Kept the existing GCP/Vertex AI integration and changed the runtime default to GA `google/gemini-2.5-flash`.
+- Updated `.env.example` and the evaluation model set to avoid the unavailable preview model; added regression coverage for the default and environment override.
+- Verification: 12 backend unit tests passed, Python compilation passed, and the configuration smoke check selected `google/gemini-2.5-flash`.
+- Cloud Build `ff040962-f7a2-4765-b5f3-6d405a1e65df` completed successfully and deployed backend revision `airbnb-backend-00070-r5c`.
+- The production website answered "Which borough has the highest average listing price?" successfully in 48 seconds with all four stages and a chart; the answer identified Manhattan at $257.81 average listing price.
