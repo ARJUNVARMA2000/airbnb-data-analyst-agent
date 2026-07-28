@@ -134,3 +134,15 @@
 - `python -m unittest discover -s tests -p "test_*.py" -v`
 - Runtime import smoke: `main` and `evaluate` both import successfully with a dummy `OPENROUTER_API_KEY`
 - Residual risk: I did not implement the SQL count/concurrency change. That remains a separate tradeoff decision because replacing exact row counts with a cheaper `has_more`-style signal would improve performance but may slightly reduce metadata fidelity in the trace UI and tool outputs.
+
+## 2026-07-28 Live Website Model Failure
+
+- [x] Reproduce the production failure and capture the exact provider error.
+- [x] Keep the existing Vertex AI provider and replace the unavailable preview model with GA `gemini-2.5-flash`.
+- [x] Align runtime defaults, examples, evaluation configuration, and regression coverage with the supported model.
+- [x] Run unit, import, and configuration smoke checks.
+- [ ] Deploy the corrected backend and verify a real website question end to end.
+
+### Review
+
+- Pending implementation and verification.
