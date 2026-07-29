@@ -168,3 +168,5 @@
 - Live streamed tool-call smokes passed on both Gemini 3.5 Flash-Lite and Gemini 3.5 Flash, each making one tool call and returning the expected result.
 - Full Flash-Lite pipeline smoke passed all four stages in 46.2 seconds with 6 tool calls, 3 charts, an 84/100 quality score, and an estimated cost of $0.0291.
 - Evaluation artifact: `backend/evaluation_gemini35_flash_lite_migration.json`.
+- Cloud Build `7cf69d9b-ffbd-4d00-9fb0-74897f0d7c74` succeeded and deployed backend revision `airbnb-backend-00071-r47` plus frontend revision `airbnb-frontend-00047-pwr`, both with 100% traffic.
+- The deployed backend completed a real pricing question with all four stages, 9 tool calls, 3 chart artifacts, and a 2,892-character answer identifying Manhattan at $257.81 average listing price.
