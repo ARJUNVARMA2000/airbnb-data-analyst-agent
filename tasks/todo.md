@@ -151,3 +151,20 @@
 - Verification: 12 backend unit tests passed, Python compilation passed, and the configuration smoke check selected `google/gemini-2.5-flash`.
 - Cloud Build `ff040962-f7a2-4765-b5f3-6d405a1e65df` completed successfully and deployed backend revision `airbnb-backend-00070-r5c`.
 - The production website answered "Which borough has the highest average listing price?" successfully in 48 seconds with all four stages and a chart; the answer identified Manhattan at $257.81 average listing price.
+
+## 2026-07-29 Gemini 2.5 Lifecycle Migration
+
+- [x] Replace the production default `google/gemini-2.5-flash` with GA `google/gemini-3.5-flash-lite`.
+- [x] Align the environment example and evaluation model catalog with supported Gemini 3 GA models.
+- [x] Require an OpenAI Agents SDK version that preserves Gemini thought signatures across streamed tool-call turns.
+- [x] Add regression coverage for the new default and thought-signature round trips.
+- [x] Run unit, compile, configuration, and live Vertex smoke checks; then document the outcome.
+
+### Review
+
+- Production now defaults to GA `google/gemini-3.5-flash-lite`; GA `google/gemini-3.5-flash` remains available as the higher-cost evaluation fallback.
+- `openai-agents>=0.13.4` is now required, and regression coverage verifies that Google thought signatures survive the tool-call response/request round trip.
+- Local verification passed: lockfile check, Python compilation, and all 13 backend unit tests.
+- Live streamed tool-call smokes passed on both Gemini 3.5 Flash-Lite and Gemini 3.5 Flash, each making one tool call and returning the expected result.
+- Full Flash-Lite pipeline smoke passed all four stages in 46.2 seconds with 6 tool calls, 3 charts, an 84/100 quality score, and an estimated cost of $0.0291.
+- Evaluation artifact: `backend/evaluation_gemini35_flash_lite_migration.json`.

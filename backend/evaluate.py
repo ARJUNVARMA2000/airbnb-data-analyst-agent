@@ -5,7 +5,7 @@ Standalone script to evaluate Gemini models on the Airbnb multi-agent pipeline.
 
 Usage:
     python evaluate.py                                            # Run all models, all questions
-    python evaluate.py --models "google/gemini-2.5-flash"         # Single model smoke test
+    python evaluate.py --models "google/gemini-3.5-flash-lite"    # Single model smoke test
     python evaluate.py --questions 1                              # Single question
 """
 
@@ -49,8 +49,18 @@ class ModelSpec:
 
 
 EVAL_MODELS: list[ModelSpec] = [
-    ModelSpec("google/gemini-2.5-flash", "Gemini 2.5 Flash", cost_per_1k_input=0.00015, cost_per_1k_output=0.0006),
-    ModelSpec("google/gemini-2.5-pro", "Gemini 2.5 Pro", cost_per_1k_input=0.00125, cost_per_1k_output=0.01),
+    ModelSpec(
+        "google/gemini-3.5-flash-lite",
+        "Gemini 3.5 Flash-Lite",
+        cost_per_1k_input=0.0003,
+        cost_per_1k_output=0.0025,
+    ),
+    ModelSpec(
+        "google/gemini-3.5-flash",
+        "Gemini 3.5 Flash",
+        cost_per_1k_input=0.0015,
+        cost_per_1k_output=0.009,
+    ),
 ]
 
 EVAL_QUESTIONS = [
