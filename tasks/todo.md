@@ -152,6 +152,13 @@
 - Cloud Build `ff040962-f7a2-4765-b5f3-6d405a1e65df` completed successfully and deployed backend revision `airbnb-backend-00070-r5c`.
 - The production website answered "Which borough has the highest average listing price?" successfully in 48 seconds with all four stages and a chart; the answer identified Manhattan at $257.81 average listing price.
 
+## 2026-07-28 SQL Query Performance Optimization
+
+- [ ] Replace exact count re-execution with a bounded `max_rows + 1` query and a `has_more` signal.
+- [ ] Remove the process-wide query lock by giving each thread its own read-only DuckDB connection.
+- [ ] Update result contracts and trace UI copy so capped results remain accurate without claiming an exact total.
+- [ ] Add regression and concurrency coverage, run backend/frontend verification, and document the outcome.
+
 ## 2026-07-29 Gemini 2.5 Lifecycle Migration
 
 - [x] Replace the production default `google/gemini-2.5-flash` with GA `google/gemini-3.5-flash-lite`.
